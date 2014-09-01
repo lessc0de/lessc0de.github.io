@@ -1,0 +1,167 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Connecting Hbase to Elasticsearch in 10 min or less</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-54336954-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
+
+  </head>
+  <body>
+  <h2><a href="http://lessc0de.github.io/">less code</a></h2>
+    <div class="wrapper">
+            <section>
+        <h3>
+<a name="phoenix-elasticsearch" class="anchor" href="#phoenix-elasticsearch><span class="octicon octicon-link"></span></a>Connecting Hbase to Elasticsearch in 10 min or less</h3>
+
+<p>This might be useful to Elasticsearch users who want to store their data in Hbase, and to Hbase users who wish to enable full-text search on their existing tables via <a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/search-search.html">REST API</a>.</p>
+
+<a href ="http://www.elasticsearch.org/">Elasticsearch</a> is a distributed search engine based on <a href="http://lucene.apache.org/core/">Apache Lucene</a>, and <a href="http://hbase.apache.org/">Hbase</a> is a distributed database built on top of <a href="http://hadoop.apache.org/">Apache Hadoop</a>. There is some overlap between the two as Elasticsearch also functions as a database, which stores search indexes and archives text data. 
+
+There has been a good deal of discussion lately on reasons to NOT use Elasticsearch as a primary datastore, among them  <a href="http://aphyr.com/posts/317-call-me-maybe-elasticsearch">weak consistency guarantees</a> that can result in loss of data</a>, with the recommended alternative of applying it primarily as an indexing engine while delegating storage to a safer database. Data ingest can be handled by <a href="http://www.elasticsearch.org/blog/the-river/">JDBC River</a>, which is a pluggable service running within elasticsearch cluster pulling data (or being pushed with data) that is then indexed into the cluster.</p>
+<p><a href="https://github.com/jprante/elasticsearch-river-jdbc"><img src="simple-tabular-json-data.png" alt="Elasticsearch JDBC River"></a>
+</p>
+<p>While still in active development Hbase is a relatively mature and reliable distributed database based on Google's <a href="http://research.google.com/archive/bigtable.html">BigTable design</a> which comes with very good scalability and performance. It supports random, realtime read/write access to very large tables -- billions of rows X millions of columns -- atop clusters of commodity hardware. In fact <a href="https://www.facebook.com/video/video.php?v=690851516105">Facebook Messages' search engine</a> is built with an <a href="https://www.facebook.com/notes/facebook-engineering/the-underlying-technology-of-messages/454991608919">inverted index stored in HBase</a>.
+</p>
+<p>
+<a href="http://phoenix.apache.org/">Apache Phoenix</a> is a SQL skin over HBase which essentially <a href="http://vimeo.com/70432259">transforms Hbase into a distributed RDBMS</a>, for example you could execute standard relational operators such as SQL SELECT or JOIN over multiple tables containing billions of rows which are spread across hundreds of machines. Phoenix JDBC driver allows easy integration with <a href="https://github.com/jprante/elasticsearch-river-jdbc">Elasticsearch JDBC River</a> as shown below.</p>
+
+<p>
+<H2>Setup</H2>
+<p>
+Prerequisites: <a href="http://www.oracle.com/technetwork/java/javase/downloads/jdk7-downloads-1880260.html">JDK 7</a> and JAVA_HOME is set
+<pre><code>$ export JAVA_HOME=`/usr/libexec/java_home -v 1.7`
+</code></pre>
+</p>
+
+1.  <a href="http://www.apache.org/dyn/closer.cgi/hbase/">Download</a> Hbase 
+<pre><code>$ wget http://mirrors.ibiblio.org/apache/hbase/hbase-0.94.22/hbase-0.94.22.tar.gz
+$ tar xvzf hbase-0.94.22.tar.gz
+$ cd hbase-0.94.22; export HBASE_HOME=`pwd`; cd ../
+</code></pre>
+
+2.  <a href="http://www.apache.org/dyn/closer.cgi/phoenix/">Download</a> Phoenix 
+<pre><code>$ wget http://www.motorlogy.com/apache/phoenix/phoenix-3.1.0/bin/phoenix-3.1.0-bin.tar.gz
+$ tar xvzf phoenix-3.1.0-bin.tar.gz
+$ cd phoenix-3.1.0-bin; export PHOENIX_HOME=`pwd`;  cd ../
+</code></pre>
+<i>Note: if you're using HBase 0.98 with Hadoop2 you'd want to download the 4.1.0 release tar</i>
+<br><br>
+
+3.  Copy Phoenix core jar to hbase lib directory 
+<pre><code>$ cp $PHOENIX_HOME/common/phoenix-core-3.1.0.jar $HBASE_HOME/lib/
+</code></pre>
+<i>Note: if you're using HBase 0.98 with Hadoop2 copy the the hadoop2/phoenix-4.1.0-server-hadoop2.jar to hbase lib directory</a>
+<br><br>
+
+4. Start Hbase in <a href="http://hbase.apache.org/book/standalone_dist.html">standalone</a> mode 
+<pre><code>$ $HBASE_HOME/bin/start-hbase.sh
+</code></pre> Check if Hbase is up: <a href="http://localhost:60010">http://localhost:60010</a>
+<br><br>
+
+5. Create a table in Hbase using SQLline 
+<pre><code>$ $PHOENIX_HOME/hadoop1/bin/sqlline.py localhost
+> CREATE TABLE test.orders ( id BIGINT not null primary key, name VARCHAR);
+> UPSERT INTO TEST.ORDERS(ID,NAME) VALUES(123,'foo');
+> UPSERT INTO TEST.ORDERS(ID,NAME) VALUES(456,'bar');
+> SELECT * FROM test.orders;
+> !quit
+</code></pre>
+
+6. <a href="http://www.elasticsearch.org/overview/elkdownloads/">Download</a> Elasticsearch
+<pre><code>$ wget http://download.elasticsearch.org/elasticsearch/elasticsearch/elasticsearch-1.3.2.zip
+$ unzip elasticsearch-1.3.2.zip;
+$ cd elasticsearch-1.3.2; export ELS_HOME=`pwd`
+</code></pre>
+
+7. <a href="https://github.com/jprante/elasticsearch-river-jdbc">Install </a>Elasticsearch JDBC plugin</a>
+<pre><code>$ $ELS_HOME/bin/plugin --install jdbc --url http://xbib.org/repository/org/xbib/elasticsearch/plugin/elasticsearch-river-jdbc/1.3.0.4/elasticsearch-river-jdbc-1.3.0.4-plugin.zip
+</code></pre>
+
+8. Copy Phoenix JDBC driver to Elasticsearch plugins directory
+<pre><code>$ cp $PHOENIX_HOME/hadoop1/phoenix-3.1.0-client-hadoop1.jar $ELS_HOME/plugins/jdbc/ 
+</code></pre>
+<i>Note: if you're using HBase 0.98 with Hadoop2 copy hadoop2/phoenix-4.1.0-client-hadoop2.jar to plugins directory
+<br><br>
+
+9. Start Elasticsearch in standalone mode 
+<pre><code>$ nohup $ELS_HOME/bin/elasticsearch &
+$ tail nohup.out
+</code></pre>
+
+Check if it's running: 
+<pre><code>$ curl -X GET http://localhost:9200/
+</code></pre>
+
+10. Create <a href="http://www.elasticsearch.org/guide/en/elasticsearch/rivers/current/">JDBC River</a> named 'phoenix_jdbc_river'
+<pre><code>curl -XPUT 'localhost:9200/_river/phoenix_jdbc_river/_meta' -d '{
+    "type" : "jdbc",
+    "jdbc" : {
+        "url" : "jdbc:phoenix:localhost",
+        "user" : "",
+        "password" : "",
+        "sql" : "select * from test.orders"
+    }
+}'
+</code></pre>
+
+11. Get data via Search API 
+</code><pre>$ curl 'localhost:9200/jdbc/_search?pretty&q=*'</code></pre>
+
+Results:
+</code><pre>
+{
+  "took" : 46,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 5,
+    "successful" : 5,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : 2,
+    "max_score" : 1.0,
+    "hits" : [ {
+      "_index" : "jdbc",
+      "_type" : "jdbc",
+      "_id" : "twfnoYwNT0W4sRILyjfepA",
+      "_score" : 1.0,
+      "_source":{"ID":456,"NAME":"bar"}
+    }, {
+      "_index" : "jdbc",
+      "_type" : "jdbc",
+      "_id" : "BjLNiqOwS7m8HZiuwlCgow",
+      "_score" : 1.0,
+      "_source":{"ID":123,"NAME":"foo"}
+    } ]
+  }
+}
+</code></pre>
+</p>
+<p>Thanks to James Taylor (<a href="https://github.com/JamesRTaylor">@JamesRTaylor</a>) and Jörg Prante (<a href="https://github.com/jprante">@jprante</a>) for making this quick integration possible.
+</p>
+</section>
+</div>
+<p>Posted by Alex Kamil - Aug 30th, 2014</p>
+<a href="https://twitter.com/share" class="twitter-share-button">Tweet</a>
+<script>!function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0],p=/^http:/.test(d.location)?'http':'https';if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src=p+'://platform.twitter.com/widgets.js';fjs.parentNode.insertBefore(js,fjs);}}(document, 'script', 'twitter-wjs');</script>
+
+</body>
+</html>
